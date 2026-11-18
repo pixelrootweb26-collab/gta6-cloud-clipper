@@ -11,13 +11,26 @@ VIDEO_URL = os.environ.get("VIDEO_URL")
 os.makedirs("source_media", exist_ok=True)
 os.makedirs("output_clips", exist_ok=True)
 
-print("[1/5] Downloading VOD source via yt-dlp (with cookies)...")
+print("[1/5] Fetching video stream via Cobalt API...")
 source_file = "source_media/vod.mp4"
-subprocess.run([
-    "yt-dlp", "--cookies", "cookies.txt", 
-    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "-o", source_file, VIDEO_URL
-], check=True)
+
+# Request direct download link from a public Cobalt API instance
+cobalt_response = requests.post(
+    "https://api.cobalt.tools/api/json",
+    json={"url": VIDEO_URL, "videoQuality": "720"},
+    headers={"Accept": "application/json", "Content-Type": "application/json"}
+)
+cobalt_data = cobalt_response.json()
+
+if "url" in cobalt_data:
+    download_url = cobalt_data["url"]
+    print("-> Cobalt link acquired successfully. Downloading stream file...")
+    stream_file = requests.get(download_url, stream=True)
+    with open(source_file, "wb") as f:
+        for chunk in stream_file.iter_content(chunk_size=8192):
+            f.write(chunk)
+else:
+    raise Exception(f"Cobalt API failed to parse link: {cobalt_data}")
 
 print("[2/5] Transcribing audio with Whisper...")
 model = WhisperModel("base.en", device="cpu", compute_type="int8")
@@ -39,7 +52,7 @@ Return ONLY a valid JSON array of objects with keys: "start_time" (float seconds
 Transcript chunk: {json.dumps(transcript_data[:600])}
 """
 
-response = requests.post(
+ai_response = requests.post(
     API_URL,
     headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
     json={
@@ -49,7 +62,7 @@ response = requests.post(
     }
 )
 
-clips_to_process = json.loads(response.json()["choices"]["message"]["content"].strip())
+clips_to_process = json.loads(ai_response.json()["choices"]["message"]["content"].strip())
 print(f"-> AI found {len(clips_to_process)} viral moments to produce.")
 
 print("[4/5] Cutting, cropping 9:16, applying Hormozi captions & rendering...")
