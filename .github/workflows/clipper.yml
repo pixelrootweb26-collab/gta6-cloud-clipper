@@ -1,37 +1,35 @@
-name: Cloud AI Link Clipper
+name: Cloud AI Local File Clipper
 
 on:
+  push:
+    paths:
+      - 'raw_videos/**'
   workflow_dispatch:
-    inputs:
-      video_url:
-        description: 'YouTube or Stream Link'
-        required: true
 
 jobs:
   process-video:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+- uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
+- uses: actions/setup-python@v5
+  with:
           python-version: '3.11'
 
-      - name: Install FFmpeg, Fonts & Tools
-        run: |
+- name: Install FFmpeg, Fonts & Tools
+  run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           pip install faster-whisper requests
 
-      - name: Run Clipping Pipeline
-        env:
+- name: Run Clipping Pipeline
+  env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          VIDEO_URL: ${{ github.event.inputs.video_url }}
-        run: |
+  run: |
           python clip_pipeline.py
 
-      - name: Package Ready-to-Post Shorts
-        uses: actions/upload-artifact@v4
-        with:
+- name: Package Ready-to-Post Shorts
+  uses: actions/upload-artifact@v4
+  with:
           name: ready-to-post-shorts
           path: output_clips/FINAL_SHORT_*.mp4
