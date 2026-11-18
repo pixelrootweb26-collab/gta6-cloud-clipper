@@ -1,4 +1,5 @@
 import os
+import glob
 import json
 import subprocess
 import requests
@@ -6,44 +7,17 @@ from faster_whisper import WhisperModel
 
 API_KEY = os.environ.get("GROQ_API_KEY")
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
-VIDEO_URL = os.environ.get("VIDEO_URL")
 
 os.makedirs("raw_videos", exist_ok=True)
 os.makedirs("output_clips", exist_ok=True)
-source_file = "raw_videos/vod.mp4"
 
-print(f"[1/4] Fetching video stream via cloud extractor proxy for: {VIDEO_URL}")
+# Automatically find the uploaded raw video
+video_files = glob.glob("raw_videos/*.mp4") + glob.glob("raw_videos/*.mov") + glob.glob("raw_videos/*.mkv")
+if not video_files:
+    raise FileNotFoundError("No video found in 'raw_videos/'. Please upload a video file there first!")
 
-api_endpoints = [
-    "https://api.cobalt.tools/api/json",
-    "https://co.wuk.sh/api/json"
-]
-
-download_success = False
-for api in api_endpoints:
-    try:
-        response = requests.post(
-            api,
-            json={"url": VIDEO_URL, "videoQuality": "720"},
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=20
-        )
-        data = response.json()
-        if "url" in data:
-            media_url = data["url"]
-            print(f"-> Successfully retrieved stream via {api}")
-            stream = requests.get(media_url, stream=True)
-            with open(source_file, "wb") as f:
-                for chunk in stream.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            download_success = True
-            break
-    except Exception as e:
-        print(f"Endpoint {api} failed: {e}")
-        continue
-
-if not download_success:
-    raise Exception("All cloud extraction endpoints failed. Please check your video URL.")
+source_file = video_files[0]
+print(f"[1/4] Found local video file: {source_file}")
 
 print("[2/4] Transcribing audio & extracting word timestamps...")
 model = WhisperModel("base.en", device="cpu", compute_type="int8")
