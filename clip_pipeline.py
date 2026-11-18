@@ -1,5 +1,4 @@
 import os
-import glob
 import json
 import subprocess
 import requests
@@ -7,17 +6,24 @@ from faster_whisper import WhisperModel
 
 API_KEY = os.environ.get("GROQ_API_KEY")
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
+VIDEO_URL = os.environ.get("VIDEO_URL")
 
 os.makedirs("raw_videos", exist_ok=True)
 os.makedirs("output_clips", exist_ok=True)
+source_file = "raw_videos/vod.mp4"
 
-# 1. Automatically find the uploaded video in raw_videos/
-video_files = glob.glob("raw_videos/*.mp4") + glob.glob("raw_videos/*.mov") + glob.glob("raw_videos/*.mkv")
-if not video_files:
-    raise FileNotFoundError("No video found in 'raw_videos/'. Upload an .mp4, .mov, or .mkv file first!")
-
-source_file = video_files[0]
-print(f"[1/4] Found uploaded video: {source_file}")
+# 1. Download directly from YouTube link using PO Token + JS Runtime
+print(f"[1/4] Downloading video from link: {VIDEO_URL}")
+subprocess.run([
+    "yt-dlp",
+    "--js-runtimes", "node",
+    "--remote-components", "ejs:github",
+    "--extractor-args", "youtube:player_client=web,android_vr,tv_downgraded",
+    "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    "--merge-output-format", "mp4",
+    "-o", source_file,
+    VIDEO_URL
+], check=True)
 
 # 2. Transcribe with word-level timestamps for punchy Hormozi captions
 print("[2/4] Transcribing audio & extracting word timestamps...")
@@ -63,14 +69,12 @@ ai_response = requests.post(
 )
 
 raw_content = ai_response.json()["choices"][0]["message"]["content"].strip()
-# Clean potential markdown wrappers if the model adds them
 if raw_content.startswith("```"):
     raw_content = raw_content.strip("`").replace("json", "").strip()
 
 clips_to_process = json.loads(raw_content)
 print(f"-> AI selected {len(clips_to_process)} clips to produce.")
 
-# Helper to format ASS subtitle timestamps (H:MM:SS.cs)
 def fmt_ass(seconds):
     hrs = int(seconds // 3600)
     mins = int((seconds % 3600) // 60)
@@ -92,7 +96,6 @@ for idx, clip in enumerate(clips_to_process, start=1):
         "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", subclip_path
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Filter words belonging to this clip and group them in chunks of 3 (Hormozi punchy style)
     clip_words = [w for w in all_words if start <= w["start"] <= end]
     ass_path = f"output_clips/captions_{idx}.ass"
     
@@ -100,7 +103,6 @@ for idx, clip in enumerate(clips_to_process, start=1):
         f.write("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n")
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        # Bold yellow text (&H0000FFFF), thick black outline, center-bottom alignment (2), raised MarginV=480
         f.write("Style: Hormozi,DejaVu Sans,85,&H0000FFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,3,2,50,50,480,1\n\n")
         f.write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
@@ -110,7 +112,6 @@ for idx, clip in enumerate(clips_to_process, start=1):
             c_start = max(0, chunk[0]["start"] - start)
             c_end = max(c_start + 0.2, chunk[-1]["end"] - start)
             
-            # Highlight the active/last word in white while keeping others bright yellow
             styled_words = []
             for j, w_obj in enumerate(chunk):
                 if j == len(chunk) - 1 and len(chunk) > 1:
@@ -121,10 +122,6 @@ for idx, clip in enumerate(clips_to_process, start=1):
             line_text = " ".join(styled_words)
             f.write(f"Dialogue: 0,{fmt_ass(c_start)},{fmt_ass(c_end)},Hormozi,,0,0,0,,{line_text}\n")
 
-    # Video Filter:
-    # 1. Upscale/sharpen input with unsharp + lanczos
-    # 2. Create blurred 9:16 vertical background + sharp centered foreground
-    # 3. Overlay top hook banner + burn ASS Hormozi captions
     vf_chain = (
         "split[orig][copy];"
         "[copy]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28[bg];"
@@ -144,7 +141,6 @@ for idx, clip in enumerate(clips_to_process, start=1):
         final_output
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Remove temp files so only final Shorts get zipped
     if os.path.exists(subclip_path): os.remove(subclip_path)
     if os.path.exists(ass_path): os.remove(ass_path)
 
