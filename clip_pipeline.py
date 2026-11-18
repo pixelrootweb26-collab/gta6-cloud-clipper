@@ -12,20 +12,39 @@ os.makedirs("raw_videos", exist_ok=True)
 os.makedirs("output_clips", exist_ok=True)
 source_file = "raw_videos/vod.mp4"
 
-# 1. Download directly from YouTube link using PO Token + JS Runtime
-print(f"[1/4] Downloading video from link: {VIDEO_URL}")
-subprocess.run([
-    "yt-dlp",
-    "--js-runtimes", "node",
-    "--remote-components", "ejs:github",
-    "--extractor-args", "youtube:player_client=web,android_vr,tv_downgraded",
-    "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "--merge-output-format", "mp4",
-    "-o", source_file,
-    VIDEO_URL
-], check=True)
+print(f"[1/4] Fetching video stream via cloud extractor proxy for: {VIDEO_URL}")
 
-# 2. Transcribe with word-level timestamps for punchy Hormozi captions
+api_endpoints = [
+    "https://api.cobalt.tools/api/json",
+    "https://co.wuk.sh/api/json"
+]
+
+download_success = False
+for api in api_endpoints:
+    try:
+        response = requests.post(
+            api,
+            json={"url": VIDEO_URL, "videoQuality": "720"},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=20
+        )
+        data = response.json()
+        if "url" in data:
+            media_url = data["url"]
+            print(f"-> Successfully retrieved stream via {api}")
+            stream = requests.get(media_url, stream=True)
+            with open(source_file, "wb") as f:
+                for chunk in stream.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            download_success = True
+            break
+    except Exception as e:
+        print(f"Endpoint {api} failed: {e}")
+        continue
+
+if not download_success:
+    raise Exception("All cloud extraction endpoints failed. Please check your video URL.")
+
 print("[2/4] Transcribing audio & extracting word timestamps...")
 model = WhisperModel("base.en", device="cpu", compute_type="int8")
 segments, _ = model.transcribe(source_file, vad_filter=True, word_timestamps=True)
@@ -48,7 +67,6 @@ for i, seg in enumerate(segments):
                 "end": round(w.end, 2)
             })
 
-# 3. AI selects the best viral moments
 print("[3/4] AI analyzing transcript for peak viral moments...")
 prompt = f"""
 Analyze this video transcript and extract the top 3 most entertaining, high-energy, or dramatic moments for viral YouTube Shorts/Reels (each 20 to 45 seconds long).
@@ -82,7 +100,6 @@ def fmt_ass(seconds):
     cs = int((seconds - int(seconds)) * 100)
     return f"{hrs}:{mins:02}:{secs:02}.{cs:02}"
 
-# 4. Cut, Crop 9:16, Upscale, and Burn Hormozi Word-Group Captions
 print("[4/4] Editing, upscaling, and burning Hormozi captions...")
 for idx, clip in enumerate(clips_to_process, start=1):
     start = float(clip["start_time"])
