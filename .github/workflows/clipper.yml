@@ -22,9 +22,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           
-      - name: Install Python Libraries
+      - name: Install Latest yt-dlp & AI Libraries
         run: |
-          pip install faster-whisper yt-dlp requests
+          pip install --upgrade yt-dlp faster-whisper requests
+          
+      - name: Inject YouTube Cookies
+        run: |
+          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           
       - name: Run AI Clipping Pipeline
         env:
