@@ -11,10 +11,11 @@ VIDEO_URL = os.environ.get("VIDEO_URL")
 os.makedirs("source_media", exist_ok=True)
 os.makedirs("output_clips", exist_ok=True)
 
-print("[1/5] Downloading VOD source via yt-dlp...")
+print("[1/5] Downloading VOD source via yt-dlp (with cookies)...")
 source_file = "source_media/vod.mp4"
 subprocess.run([
-    "yt-dlp", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    "yt-dlp", "--cookies", "cookies.txt", 
+    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     "-o", source_file, VIDEO_URL
 ], check=True)
 
